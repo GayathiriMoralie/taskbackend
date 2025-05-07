@@ -19,35 +19,40 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-// Register a new user (Admin, Manager, User)
-const registerUser = async (req, res) => {
-    const { username, password, role } = req.body;
+// Register a new user
+const allowedRoles = {
+    user: 'user123',
+    manager: 'manager123',
+    admin: 'admin123'
+  };
   
-    if (!username || !password || !role) {
-      return res.status(400).json({ message: 'All fields are required' });
-    }
-  
+  const registerUser = async (req, res) => {
     try {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const query = `INSERT INTO users (username, password, role) VALUES ($1, $2, $3) RETURNING *`;
-      const values = [username, hashedPassword, role];
+      const { username, password, role, name } = req.body;
   
-      console.log('Running query:', query);
-      console.log('With values:', values);
+      // Check if any field is missing
+      if (!username || !password || !role || !name) {
+        return res.status(400).json({ message: 'All fields are required.' });
+      }
   
-      const result = await client.query(query, values);
+      // Check if role is valid and password matches
+      if (!allowedRoles[role] || allowedRoles[role] !== password) {
+        return res.status(401).json({ message: 'Invalid role or password.' });
+      }
   
-      res.status(201).json({
-        message: 'User registered successfully',
-        user: {
-          id: result.rows[0].id,
-          username: result.rows[0].username,
-          role: result.rows[0].role
-        }
-      });
+      // Save the user (this part will depend on your DB setup)
+      const newUser = {
+        username,
+        password,  // Consider hashing in real apps
+        role,
+        name
+      };
+  
+      // Example: await User.create(newUser);
+      res.status(201).json({ message: 'Registration successful', user: newUser });
+  
     } catch (err) {
-      console.error('Detailed registration error:', err); // <-- Shows the real problem
-      res.status(500).json({ message: 'Error registering user' });
+      res.status(500).json({ message: 'Server error', error: err.message });
     }
   };
   
@@ -87,8 +92,6 @@ const loginUser = async (req, res) => {
     console.error('Error in loginUser:', err);
     res.status(500).json({ message: 'Internal server error' });
   }
-  
-
 };
 
 module.exports = {

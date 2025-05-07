@@ -1,21 +1,16 @@
-const Task = require('./routes/taskRoutes'); // Adjust the path if it's elsewhere
-const pool =require('./config/db');
+const pool = require('./config/db');
 const express = require('express');
-
 const cors = require('cors');
-const client = require('./config/db'); // ✅ Import client from db.js
 const dotenv = require('dotenv');
 const bodyParser = require('body-parser');
 const adminRoutes = require('./routes/adminRoutes');
 const taskRoutes = require('./routes/taskRoutes');
 const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
 const { updateTaskStatus } = require('./controllers/taskController');
-const verifyToken = require('./utils/tokenUtils');
 const authMiddleware = require('./middleware/authMiddleware');
 const { getUsers, deleteUser } = require('./controllers/adminController');
-const { getUserDetails } = require('./controllers/userController');  // Ensure correct import
-const adminController = require('./controllers/adminController');
-const userController = require('./controllers/userController');
+const { getUserDetails } = require('./controllers/userController');
 const http = require('http');
 const socketIo = require('socket.io');
 
@@ -28,30 +23,37 @@ const io = socketIo(server);
 dotenv.config();
 
 // Middleware
-app.use(cors());
-app.use(express.json());  // Use express.json() to parse JSON bodies
+app.use(cors({
+  origin: 'http://localhost:3500',  // Replace with your frontend's origin if different
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+}));
+app.use(express.json());  // Parse JSON bodies
 
 // Use routes
 app.use('/api/admin', adminRoutes);
 app.use('/api/tasks', taskRoutes);
-app.use('/api/auth', authRoutes);   
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 
-// Correct route to get user details using the controller
-app.get('/api/users/details', async (req, res) => {
+// User details route
+app.get('/api/users/details', authMiddleware, async (req, res) => {
   try {
-    const result = await client.query('SELECT username, registered_at, last_login FROM users');
-    res.json(result.rows);
+    // Get user details from the database
+    const userDetails = await pool.query('SELECT id, username, name, role, registered_at FROM users WHERE id = $1', [req.user.id]);
+
+    if (userDetails.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Return user details without the last_login field
+    res.json(userDetails.rows[0]);
   } catch (error) {
     console.error('Error fetching user details:', error);
     res.status(500).json({ message: 'Failed to fetch user details', error: error.message });
   }
-  const updateLoginTimeQuery = 'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE username = $1';
-await pool.query(updateLoginTimeQuery, [username]);
 });
 
-// Inside your backend, e.g., server.js
-
-// In the backend, for example, with Express.js:
+// Task creation route
 app.post('/api/tasks/create', async (req, res) => {
   const { title, description, due_date, priority, status, assignedTo } = req.body;
 
@@ -60,7 +62,6 @@ app.post('/api/tasks/create', async (req, res) => {
       'INSERT INTO tasks (title, description, due_date, priority, status, assigned_to) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
       [title, description, due_date, priority, status, assignedTo]
     );
-
     res.status(201).json(result.rows[0]);
   } catch (error) {
     console.error('Error inserting task:', error);
@@ -68,16 +69,13 @@ app.post('/api/tasks/create', async (req, res) => {
   }
 });
 
-
 // Task status update route with Socket.IO integration
-const db = require('./config/db'); // Adjust path if needed
-
 app.patch('/api/tasks/:taskId/status', async (req, res) => {
   const taskId = req.params.taskId;
   const { status } = req.body;
 
   try {
-    const result = await db.query(
+    const result = await pool.query(
       'UPDATE tasks SET status = $1 WHERE id = $2 RETURNING *',
       [status, taskId]
     );
@@ -99,10 +97,6 @@ app.patch('/api/tasks/:taskId/status', async (req, res) => {
     console.error('Error updating task status:', error);
     return res.status(500).json({ message: 'Server error' });
   }
-});
-app.get('/tasks', (req, res) => {
-  console.log('Received request for tasks');
-  // Fetch tasks from database and respond
 });
 
 // Root route handler
